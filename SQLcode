@@ -1,0 +1,190 @@
+select * from [dbo].[ST_PoliceKilling]
+--Verificar los datos--
+select distinct [id] from [dbo].[ST_PoliceKilling]-- id's no se repiten. Todo bien. 
+
+select distinct [name] from [dbo].[ST_PoliceKilling] --Esta columna no agrega valor al analisis
+
+select distinct [date] from [dbo].[ST_PoliceKilling] -- incosistenia en la fecha
+
+select distinct [manner_of_death] from [dbo].[ST_PoliceKilling] -- todo bien
+
+select distinct [armed] from [dbo].[ST_PoliceKilling] -- agregar unarmed al espacio en blanco
+
+select distinct [age] from [dbo].[ST_PoliceKilling] -- sacar promedio de edad y llenarlo en los blancos
+select * from [dbo].[ST_PoliceKilling] where [age] = ''
+select avg([age]) from (select cast([age] as int) as [age] from [dbo].[ST_PoliceKilling]) as subquery --ahora sabemos que el promedio de edad es 35
+
+select distinct [gender] from [dbo].[ST_PoliceKilling] -- all good
+
+select distinct [race] from [dbo].[ST_PoliceKilling]  -- cambiar letra por nombre & poner NAN como unknown
+select distinct [race], count([race]) as Total from  [dbo].[ST_PoliceKilling] group by [race] 
+select * from [dbo].[ST_PoliceKilling] where [race] = ''
+
+select distinct [city] from [dbo].[ST_PoliceKilling] --all good
+select distinct [city], count([city]) as Total from  [dbo].[ST_PoliceKilling] group by [city] order by Total desc
+
+select distinct [state] from [dbo].[ST_PoliceKilling] -- all good
+
+select distinct [signs_of_mental_illness] from [dbo].[ST_PoliceKilling] -- all good
+
+select distinct [threat_level] from [dbo].[ST_PoliceKilling]--all good
+select distinct [threat_level], count([threat_level]) as Total from  [dbo].[ST_PoliceKilling] group by [threat_level] order by Total desc
+
+select distinct [flee] from [dbo].[ST_PoliceKilling]--cambiar el NaN por Unknown
+select * from  [dbo].[ST_PoliceKilling] where [flee]=''
+
+select distinct [body_camera] from [dbo].[ST_PoliceKilling] -- All good
+
+
+---ACONDICIONAMIENTO DE DATOS (pacrial)---
+
+--*****LIMPIAR DATOS*****--
+
+---CORREGIR DATE---
+ SELECT [id], [manner_of_death], [armed],[age], [gender], [race], [city], [state],[signs_of_mental_illness], [threat_level],[flee], [body_camera], CONCAT(
+        correct_day,
+        '/',
+        correct_month,
+        '/',
+        correct_year
+    ) as correct_date
+INTO TT_PoliceKilling
+FROM  (
+        SELECT [id], [manner_of_death], [armed],[age], [gender], [race], [city], [state],[signs_of_mental_illness], [threat_level],[flee], [body_camera], SUBSTRING(correct_day, 1, 2) as correct_day,
+            CASE
+                WHEN SUBSTRING(correct_day, 4, 2) LIKE '%/%' THEN CONCAT('0', SUBSTRING(correct_day, 4, 1))
+                ELSE SUBSTRING(correct_day, 4, 2)
+            END AS correct_month,
+            CASE
+                WHEN bad_year LIKE '%/%' THEN CONCAT(
+                    '20',
+                    REVERSE(SUBSTRING(REVERSE(bad_year), 1, 2))
+                )
+                ELSE bad_year
+            END AS correct_year
+        FROM (
+                SELECT [id], [manner_of_death], [armed],[age], [gender], [race], [city], [state],[signs_of_mental_illness], [threat_level],[flee], [body_camera], 
+						CASE
+                        WHEN bad_day LIKE '%/%' THEN CONCAT('0', bad_date)
+                        ELSE bad_date
+                    END AS correct_day,
+                    REVERSE(SUBSTRING(REVERSE(bad_date), 1, 4)) as bad_year
+                FROM (
+                        SELECT [id],
+						---CORREGIR AGE---
+						case
+						when [age]= '' then 35
+						else cast([age] as int)
+						end as [age], [gender],
+						---CORREGIR RACE---
+						case
+						when [race]='' then 'Unknown'
+						when [race]='H' then 'Hispanic'
+						when [race]='A' then 'Asian'
+						when [race]='W' then 'White'
+						when [race]='O' then 'Unknown'
+						when [race]='B' then 'Black'
+						when [race]='N' then 'Native'
+						end as [race], [signs_of_mental_illness], [manner_of_death],
+						---CORREGIR ARMED---
+						case
+						when [armed]='' then 'Unknown'
+						else [armed]
+						end as [armed], 
+						---CORREGIR FLEE---
+						case
+						when [flee]='' then 'Not fleeing'
+						else [flee]
+						end as [flee], [threat_level],[body_camera],[city], [state], 
+
+
+
+						SUBSTRING(date, 1, 2) AS bad_day,
+                            date AS bad_date 
+                        FROM [dbo].[ST_PoliceKilling]
+                    ) AS SUBQUERY_1
+            ) AS SUBQUERY_2
+    ) AS SUBQUERY_3
+
+Select * from [dbo].[TT_PoliceKilling]
+
+--MODELO DIMENSIONAL FISICO--
+
+--Dimension people
+Drop table DIM_PEOPLE
+select row_number() over (order by [gender],[race],[signs_of_mental_illness] ) as ID_People, a.*
+into DIM_People
+from
+(
+Select distinct [gender],[race],[signs_of_mental_illness]
+from [dbo].[TT_PoliceKilling]
+) as a
+
+select * from [dbo].[DIM_PEOPLE]
+
+--Dimension EVENT
+Drop table DIM_EVENT
+select row_number() over (order by [manner_of_death],[armed],[threat_level],[flee],[body_camera]) as ID_Event, a.*
+into DIM_EVENT
+from
+(
+Select distinct [manner_of_death],[armed],[threat_level],[flee],[body_camera]
+from [dbo].[TT_PoliceKilling]
+) as a
+
+select * from [dbo].[DIM_EVENT]
+
+--Dimension LOCATION
+Drop table DIM_LOCATION
+select row_number() over (order by [state],[city]) as ID_Location, a.*
+into DIM_LOCATION
+from
+(
+Select distinct [state],[city]
+from [dbo].[TT_PoliceKilling]
+) as a
+
+select * from [dbo].[DIM_LOCATION]
+
+--Dimension DATE
+Drop table DIM_DATE
+select row_number() over (order by [correct_date]) as ID_Date, a.*
+into DIM_DATE
+from
+(
+Select distinct [correct_date]
+from [dbo].[TT_PoliceKilling]
+) as a
+
+select * from [dbo].[DIM_DATE]
+
+--***TABLA MADRE (FACT TABLE)***--
+DROP TABLE FT_POLICEKILLING_FINAL
+Select a.[id], c.[ID_People], d.[ID_Event], e.[ID_Date], b.[ID_Location], a.[age]
+INTO FT_POLICE_KILLING_FINAL
+from [dbo].[TT_PoliceKilling] as a
+LEFT OUTER JOIN
+DIM_LOCATION as b
+on
+a.[state]= b.[state] and
+a.[city]= b.[city]
+LEFT OUTER JOIN
+DIM_DATE as e
+on
+a.[correct_date]= e.[correct_date]
+LEFT OUTER JOIN
+DIM_EVENT as d
+on
+a.[manner_of_death]= d.[manner_of_death] and
+a.[armed]= d.[armed] and
+a.[threat_level]= d.[threat_level] and
+a.[flee]= d.[flee] and
+a.[body_camera]= d.[body_camera]
+LEFT OUTER JOIN
+DIM_People as c
+on 
+a.[gender]= c.[gender] and
+a.[race]= c.[race] and
+a.[signs_of_mental_illness]= c.[signs_of_mental_illness]
+
+select * from [dbo].[FT_POLICE_KILLING_FINAL]
